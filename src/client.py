@@ -7,6 +7,7 @@ import websockets
 
 from utils import hash_sha256
 
+os.system("pip3 install asyncio click websockets")
 
 def execute_command(cmd: str):
     try:
