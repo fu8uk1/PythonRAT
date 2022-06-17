@@ -1,7 +1,0 @@
-INFO:__main__:Starting bot client server on 0.0.0.0:9000
-INFO:__main__:Starting control server on 0.0.0.0:4444
-
-Aborted!
-INFO:__main__:Starting bot client server on 0.0.0.0:9000
-INFO:__main__:Starting control server on 0.0.0.0:4444
-INFO:__main__:Command and control connection established

